@@ -1,4 +1,6 @@
+import asyncio
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from langchain_ollama import OllamaLLM
 from langchain_core.prompts import ChatPromptTemplate
 from app.models.query_request import QueryRequest
@@ -25,11 +27,15 @@ chain = prompt | model
 def get_root():
     return {"message": "Hello, FastAPI!"}
 
-@app.post('/query')
-def post_query(request: QueryRequest):
-    result = chain.invoke({
+async def generate_response(request: QueryRequest):
+    result = chain.astream({
         'context': request.context,
         'question': request.question
     })
-    
-    return {'result': result}
+
+    async for chunk in result:
+        yield chunk
+
+@app.post('/query')
+def post_query(request: QueryRequest):
+    return StreamingResponse(generate_response(request), media_type="text/plain")
