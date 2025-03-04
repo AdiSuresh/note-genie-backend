@@ -8,7 +8,7 @@ from app.models.query_request import QueryRequest
 app = FastAPI()
 
 template = """
-Answer the question below.
+You are a helpful assistant.
 
 Here is the conversation history: {context}
 
@@ -16,8 +16,8 @@ Question: {question}
 
 Answer:
 """
-
-model = OllamaLLM(model='deepseek-r1:1.5b')
+# 'deepseek-r1:1.5b'
+model = OllamaLLM(model='llama3.2:1b')
 
 prompt = ChatPromptTemplate.from_template(template=template)
 
