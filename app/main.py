@@ -7,7 +7,7 @@ from app.models.query_request import QueryRequest
 
 app = FastAPI()
 
-template = """
+template = '''
 You are a helpful assistant.
 
 Here is the conversation history: {context}
@@ -15,7 +15,7 @@ Here is the conversation history: {context}
 Question: {question}
 
 Answer:
-"""
+'''
 # 'deepseek-r1:1.5b'
 model = OllamaLLM(model='llama3.2:1b')
 
@@ -23,9 +23,9 @@ prompt = ChatPromptTemplate.from_template(template=template)
 
 chain = prompt | model
 
-@app.get("/")
+@app.get('/')
 def get_root():
-    return {"message": "Hello, FastAPI!"}
+    return {'message': 'Hello, FastAPI!'}
 
 async def generate_response(request: QueryRequest):
     result = chain.astream({
@@ -38,4 +38,4 @@ async def generate_response(request: QueryRequest):
 
 @app.post('/query')
 def post_query(request: QueryRequest):
-    return StreamingResponse(generate_response(request), media_type="text/plain")
+    return StreamingResponse(generate_response(request), media_type='text/plain')
