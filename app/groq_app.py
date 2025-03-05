@@ -2,7 +2,7 @@ import asyncio
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_groq import ChatGroq 
+from langchain_groq import ChatGroq
 from dotenv import load_dotenv
 from app.models.query_request import QueryRequest
 
@@ -37,8 +37,8 @@ async def generate_response(request: QueryRequest):
     })
 
     async for chunk in result:
-        yield chunk
+        yield chunk.content
 
 @app.post('/query')
-def post_query(request: QueryRequest):
+async def post_query(request: QueryRequest):
     return StreamingResponse(generate_response(request), media_type='text/plain')
