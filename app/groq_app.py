@@ -1,10 +1,12 @@
 import asyncio
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
-from langchain_ollama import OllamaLLM
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_groq import ChatGroq 
+from dotenv import load_dotenv
 from app.models.query_request import QueryRequest
 
+load_dotenv()
 
 app = FastAPI()
 
@@ -17,8 +19,8 @@ Question: {question}
 
 Answer:
 '''
-# 'deepseek-r1:1.5b'
-model = OllamaLLM(model='llama3.2:1b')
+
+model = ChatGroq(model='llama-3.1-8b-instant')
 
 prompt = ChatPromptTemplate.from_template(template=template)
 
