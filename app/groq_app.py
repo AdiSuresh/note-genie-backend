@@ -54,3 +54,16 @@ async def generate_response(request: QueryRequest):
 @app.post('/query')
 async def post_query(request: QueryRequest):
     return StreamingResponse(generate_response(request), media_type='text/plain')
+
+@app.post('/chats')
+async def create_chat(chat: ChatModel):
+    chat_dict = chat.model_dump(by_alias=True)
+    result = await chat_collection.insert_one(chat_dict)
+    return {'id': str(result.inserted_id)}
+
+@app.get('/chats', response_model=List[ChatModel])
+async def get_chats():
+    chats = await chat_collection.find().to_list()
+    for chat in chats:
+        chat['_id'] = str(chat['_id'])
+    return chats
