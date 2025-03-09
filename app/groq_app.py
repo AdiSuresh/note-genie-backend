@@ -18,7 +18,7 @@ app = FastAPI()
 MONGO_URI = os.getenv('MONGO_URI')
 client = AsyncIOMotorClient(MONGO_URI)
 db = client['note_genie_db']
-chat_collection = db['chats']
+chats_collection = db['chats']
 
 
 # LLM setup
@@ -57,13 +57,13 @@ async def post_query(request: QueryRequest):
 
 @app.post('/chats')
 async def create_chat(chat: ChatModel):
-    chat_dict = chat.model_dump(by_alias=True)
-    result = await chat_collection.insert_one(chat_dict)
+    chat_dict = chat.model_dump(by_alias=True, exclude=['id'])
+    result = await chats_collection.insert_one(chat_dict)
     return {'id': str(result.inserted_id)}
 
 @app.get('/chats', response_model=List[ChatModel])
 async def get_chats():
-    chats = await chat_collection.find().to_list()
+    chats = await chats_collection.find().to_list()
     for chat in chats:
         chat['_id'] = str(chat['_id'])
     return chats
