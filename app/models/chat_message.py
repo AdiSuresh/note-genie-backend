@@ -1,10 +1,17 @@
+import datetime
 from enum import Enum
+from pydantic import BaseModel, Field
+
 
 class MessengerType(str, Enum):
     user = 'user'
     bot = 'bot'
 
-
-class ChatMessage:
-    def __init__(self):
-        pass
+class ChatMessageModel(BaseModel):
+    data: str
+    role: MessengerType
+    timestamp: datetime.datetime = Field(
+        default_factory=lambda _: datetime.datetime.now(
+            datetime.timezone.utc
+        )
+    )

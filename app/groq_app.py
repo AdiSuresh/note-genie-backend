@@ -1,15 +1,27 @@
-import asyncio
+from typing import List
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_groq import ChatGroq
 from dotenv import load_dotenv
+from motor.motor_asyncio import AsyncIOMotorClient
+import os
+from app.models.chat import ChatModel
 from app.models.query_request import QueryRequest
 
 load_dotenv()
 
 app = FastAPI()
 
+
+# DB setup
+MONGO_URI = os.getenv('MONGO_URI')
+client = AsyncIOMotorClient(MONGO_URI)
+db = client['note_genie_db']
+chat_collection = db['chats']
+
+
+# LLM setup
 template = '''
 You are a helpful assistant.
 
