@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from langchain_ollama import OllamaLLM
 from langchain_core.prompts import ChatPromptTemplate
-from app.models.query_request import QueryRequest
+from app.models.query_request import ChatResponseRequest
 
 
 app = FastAPI()
@@ -27,7 +27,7 @@ chain = prompt | model
 def get_root():
     return {'message': 'Hello, FastAPI!'}
 
-async def generate_response(request: QueryRequest):
+async def generate_response(request: ChatResponseRequest):
     result = chain.astream({
         'context': request.context,
         'question': request.question
@@ -37,5 +37,5 @@ async def generate_response(request: QueryRequest):
         yield chunk
 
 @app.post('/query')
-def post_query(request: QueryRequest):
+def post_query(request: ChatResponseRequest):
     return StreamingResponse(generate_response(request), media_type='text/plain')
