@@ -55,19 +55,19 @@ async def generate_response(request: ChatResponseRequest, id: ObjectId):
         chunks.append(chunk.content)
         yield chunk.content
     
-    content = ''.join(chunks)
+    response = ''.join(chunks)
     
     await chats_collection.update_one(
         {'_id': id},
-        {'$push': {'messages': {'role': 'bot', 'content': content}}}
+        {'$push': {'messages': {'role': 'bot', 'data': response}}}
     )
     
     print('finished')
 
 @app.post('/chats/{id}/respond')
-async def post_query(request: ChatResponseRequest):
+async def post_query(id: str, request: ChatResponseRequest):
     try:
-        id = ObjectId(request.id)
+        id = ObjectId(id)
     except:
         raise HTTPException(status_code=400, detail='Invalid chat ID')
 
@@ -77,7 +77,7 @@ async def post_query(request: ChatResponseRequest):
     
     await chats_collection.update_one(
         {'_id': id},
-        {'$push': {'messages': {'role': 'user', 'content': request.question}}}
+        {'$push': {'messages': {'role': 'user', 'data': request.question}}}
     )
 
     return StreamingResponse(generate_response(request, id), media_type='text/plain')
