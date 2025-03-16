@@ -9,6 +9,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 from app.models.chat import ChatModel
 from app.models.query_request import ChatResponseRequest
+from app.models.update_title_request import UpdateChatRequest
 
 load_dotenv()
 
@@ -33,7 +34,10 @@ Question: {question}
 Answer:
 '''
 
-model = ChatGroq(model='llama-3.1-8b-instant')
+model = ChatGroq(
+    model='llama-3.1-8b-instant',
+    streaming=True,
+)
 
 prompt = ChatPromptTemplate.from_template(template=template)
 
@@ -109,3 +113,33 @@ async def get_chats():
         chat['_id'] = str(chat['_id'])
         chat.pop('messages')
     return chats
+
+@app.put('/chats/{id}')
+async def update_chat_title(id: str, chat_data: UpdateChatRequest):
+    try:
+        id = ObjectId(id)
+    except:
+        raise HTTPException(status_code=400, detail='Invalid chat ID')
+
+    result = await chats_collection.update_one(
+        {'_id': id}, 
+        {'$set': {'title': chat_data.title}}
+    )
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail='Chat not found')
+
+    return {'message': 'Title updated successfully'}
+
+@app.delete('/chats/{id}')
+async def delete_chat(id: str):
+    try:
+        id = ObjectId(id)
+    except:
+        raise HTTPException(status_code=400, detail='Invalid chat ID')
+
+    result = await chats_collection.delete_one({'_id': id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail='Chat not found')
+
+    return {'message': 'Chat deleted successfully'}
