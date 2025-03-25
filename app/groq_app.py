@@ -69,7 +69,7 @@ async def generate_response(request: ChatResponseRequest, id: ObjectId):
     print('finished')
 
 @app.post('/chats/{id}/respond')
-async def post_query(id: str, request: ChatResponseRequest):
+async def create_chat_response(id: str, request: ChatResponseRequest):
     try:
         id = ObjectId(id)
     except:
@@ -108,22 +108,21 @@ async def get_chat(id: str):
 
 @app.get('/chats', response_model=List[ChatModel])
 async def get_chats():
-    chats = await chats_collection.find().to_list()
+    chats = await chats_collection.find(None, {'messages': 0}).to_list(None)
     for chat in chats:
         chat['_id'] = str(chat['_id'])
-        chat.pop('messages')
     return chats
 
 @app.put('/chats/{id}')
-async def update_chat_title(id: str, chat_data: UpdateChatRequest):
+async def update_chat_title(id: str, chat: UpdateChatRequest):
     try:
         id = ObjectId(id)
     except:
         raise HTTPException(status_code=400, detail='Invalid chat ID')
 
     result = await chats_collection.update_one(
-        {'_id': id}, 
-        {'$set': {'title': chat_data.title}}
+        {'_id': id},
+        {'$set': {'title': chat.title}}
     )
 
     if result.matched_count == 0:
