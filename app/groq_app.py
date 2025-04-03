@@ -3,6 +3,9 @@ from bson import ObjectId
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import BaseMessage
+from langchain_core.messages.ai import AIMessage
+from langchain_core.messages.human import HumanMessage
 from langchain_groq import ChatGroq
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -39,13 +42,56 @@ model = ChatGroq(
     streaming=True,
 )
 
-prompt = ChatPromptTemplate.from_template(template=template)
+prompt = ChatPromptTemplate.from_messages(template=template)
 
 chain = prompt | model
 
 @app.get('/')
 def get_root():
     return {'message': 'Hello, FastAPI!'}
+
+async def create_model(chat_id: str):
+    chat_id = ObjectId(chat_id)
+
+    chat = await get_chat(id=chat_id)
+    message_objects = chat['messages']
+
+    is_user = True
+    messages: list[BaseMessage] = []
+
+    for object in message_objects:
+        content = object['data']
+        role = object['role']
+
+        match (role, is_user):
+            case ('user', True):
+                is_user = False
+                messages.append(HumanMessage(content=content))
+            case ('bot', False):
+                is_user = True
+                messages.append(AIMessage(content=content))
+            case _:
+                raise HTTPException(status_code=500, detail='Malformed message list')
+            
+    model = ChatGroq(
+        model='llama-3.1-8b-instant',
+        streaming=True,
+    )
+    
+    model(messages=messages)
+
+    print(f'messages: {messages}')
+    return model
+
+@app.get('/test')
+async def test():
+    try:
+        id = '67e17812951a0032e4784126'
+        await create_model(chat_id=id)
+    except Exception as e:
+        print(e)
+        raise HTTPException(status_code=500)
+    return {'message': 'success'}
 
 async def generate_response(request: ChatResponseRequest, id: ObjectId):
     result = chain.astream({
