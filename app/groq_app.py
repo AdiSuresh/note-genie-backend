@@ -3,7 +3,7 @@ from bson import ObjectId
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 from langchain_groq import ChatGroq
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -40,7 +40,7 @@ model = ChatGroq(
     streaming=True,
 )
 
-prompt = ChatPromptTemplate.from_messages(template=template)
+prompt = ChatPromptTemplate.from_template(template=template)
 
 chain = prompt | model
 
@@ -48,14 +48,16 @@ chain = prompt | model
 def get_root():
     return {'message': 'Hello, FastAPI!'}
 
-async def create_model(chat_id: str):
+async def create_message_list(chat_id: str):
     chat_id = ObjectId(chat_id)
 
     chat = await get_chat(id=chat_id)
     message_objects = chat['messages']
 
     is_user = True
-    messages: list[BaseMessage] = []
+    messages: list[BaseMessage] = [
+        SystemMessage('You are a helful assistant'),
+    ]
 
     for object in message_objects:
         content = object['data']
@@ -70,32 +72,23 @@ async def create_model(chat_id: str):
                 messages.append(AIMessage(content=content))
             case _:
                 raise HTTPException(status_code=500, detail='Malformed message list')
-            
-    model = ChatGroq(
-        model='llama-3.1-8b-instant',
-        streaming=True,
-    )
     
-    model(messages=messages)
-
-    print(f'messages: {messages}')
-    return model
+    return messages
 
 @app.get('/test')
 async def test():
     try:
         id = '67e17812951a0032e4784126'
-        await create_model(chat_id=id)
+        await create_message_list(chat_id=id)
     except Exception as e:
         print(e)
         raise HTTPException(status_code=500)
     return {'message': 'success'}
 
 async def generate_response(request: ChatResponseRequest, id: ObjectId):
-    result = chain.astream({
-        'context': request.context,
-        'question': request.question
-    })
+    messages = await create_message_list(chat_id=str(id))
+    
+    result = model.astream(input=messages)
     
     chunks = []
 
@@ -125,7 +118,7 @@ async def create_chat_response(id: str, request: ChatResponseRequest):
     
     await chats_collection.update_one(
         {'_id': id},
-        {'$push': {'messages': {'role': 'user', 'data': request.question}}}
+        {'$push': {'messages': {'role': 'user', 'data': request.message}}}
     )
 
     return StreamingResponse(generate_response(request, id), media_type='text/plain')

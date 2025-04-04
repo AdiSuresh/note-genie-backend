@@ -30,7 +30,7 @@ def get_root():
 async def generate_response(request: ChatResponseRequest):
     result = chain.astream({
         'context': request.context,
-        'question': request.question
+        'question': request.message
     })
 
     async for chunk in result:

@@ -2,5 +2,5 @@ from pydantic import BaseModel
 
 
 class ChatResponseRequest(BaseModel):
-    question: str
+    message: str
     context: str = ''
