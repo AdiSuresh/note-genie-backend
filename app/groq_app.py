@@ -2,8 +2,17 @@ from typing import List
 from bson import ObjectId
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
+import torch
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_chroma import Chroma
+from langchain.agents import initialize_agent, AgentType
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
+from langchain_core.messages import (
+    BaseMessage,
+    SystemMessage,
+    HumanMessage,
+    AIMessage,
+)
 from langchain_groq import ChatGroq
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -11,6 +20,7 @@ import os
 from app.models.chat import ChatModel
 from app.models.query_request import ChatResponseRequest
 from app.models.update_title_request import UpdateChatRequest
+from app.tools.notes import NotesTool
 
 load_dotenv()
 
@@ -43,6 +53,32 @@ model = ChatGroq(
 prompt = ChatPromptTemplate.from_template(template=template)
 
 chain = prompt | model
+
+embedding_model = HuggingFaceEmbeddings(
+    model_name='nomic-ai/nomic-embed-text-v2-moe',
+    model_kwargs={
+        'device': 'cuda' if torch.cuda.is_available() else 'cpu',
+        'trust_remote_code': True,
+    },
+    encode_kwargs={'normalize_embeddings': True},
+)
+
+vectorstore = Chroma(
+    collection_name='notes',
+    embedding_function=embedding_model,
+    persist_directory='chroma_db'
+)
+
+notes_tool = NotesTool(
+    vectorstore=vectorstore
+)
+
+agent = initialize_agent(
+    tools=[notes_tool],
+    llm=model,
+    agent=AgentType.OPENAI_FUNCTIONS,
+    verbose=True,
+)
 
 @app.get('/')
 def get_root():
@@ -116,10 +152,12 @@ async def create_chat_response(id: str, request: ChatResponseRequest):
     if not chat:
         raise HTTPException(status_code=404, detail='Chat not found')
     
-    await chats_collection.update_one(
+    result = await chats_collection.update_one(
         {'_id': id},
         {'$push': {'messages': {'role': 'user', 'data': request.message}}}
     )
+
+    print(f'message appended: {result}')
 
     return StreamingResponse(generate_response(request, id), media_type='text/plain')
 
