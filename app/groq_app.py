@@ -17,6 +17,7 @@ from langchain_groq import ChatGroq
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+from app.document_loader import DocumentLoader
 from app.models.chat import ChatModel
 from app.models.query_request import ChatResponseRequest
 from app.models.update_title_request import UpdateChatRequest
@@ -63,20 +64,31 @@ embedding_model = HuggingFaceEmbeddings(
     encode_kwargs={'normalize_embeddings': True},
 )
 
-vectorstore = Chroma(
-    collection_name='notes',
-    embedding_function=embedding_model,
-    persist_directory='chroma_db'
+# vectorstore = Chroma(
+#     collection_name='notes',
+#     embedding_function=embedding_model,
+#     persist_directory='chroma_db'
+# )
+
+vectorstore = Chroma.from_texts(
+    texts=DocumentLoader().load('document.txt'),
+    collection_name='document',
+    embedding=embedding_model,
 )
 
 notes_tool = NotesTool(
     vectorstore=vectorstore
 )
 
+model_with_tools = model.bind_tools(
+    tools=[notes_tool],
+    tool_choice='any'
+)
+
 agent = initialize_agent(
     tools=[notes_tool],
     llm=model,
-    agent=AgentType.OPENAI_FUNCTIONS,
+    agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
     verbose=True,
 )
 
@@ -92,7 +104,9 @@ async def create_message_list(chat_id: str):
 
     is_user = True
     messages: list[BaseMessage] = [
-        SystemMessage('You are a helful assistant'),
+        SystemMessage(
+            'You are a helpful assistant that makes use of the notes tool for responding to user\'s queries.',
+        ),
     ]
 
     for object in message_objects:
@@ -124,13 +138,20 @@ async def test():
 async def generate_response(request: ChatResponseRequest, id: ObjectId):
     messages = await create_message_list(chat_id=str(id))
     
-    result = model.astream(input=messages)
+    # config = RunnableConfig(configurable={'stream': True})
+
+    result = model_with_tools.astream(
+        messages,
+    )
     
     chunks = []
 
     async for chunk in result:
-        chunks.append(chunk.content)
-        yield chunk.content
+        print(f'chunk: {chunk}')
+        content = chunk.content
+        print(f'content: {content}')
+        chunks.append(content)
+        yield content
     
     response = ''.join(chunks)
     
