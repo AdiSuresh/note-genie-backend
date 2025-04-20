@@ -153,7 +153,7 @@ async def generate_response(request: ChatResponseRequest, id: ObjectId):
     chunks = []
 
     async for chunk in result:
-        print(f'chunk: {chunk}')
+        # print(f'chunk: {chunk}')
         message = chunk[0]
         content = message.content
         if isinstance(message, AIMessageChunk):

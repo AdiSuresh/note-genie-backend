@@ -1,25 +1,24 @@
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import SystemMessage
 from typing import Annotated, TypedDict
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.memory import MemorySaver
 
+system_message = SystemMessage('You are a helpful assistant.')
+
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
 
 class AgentGraph(StateGraph):
     def chatbot(self, state: AgentState):
-        message = self.llm.invoke(state['messages'])
-        # Because we will be interrupting during tool execution,
-        # we disable parallel tool calling to avoid repeating any
-        # tool invocations when we resume.
-        assert len(message.tool_calls) <= 1
+        messages = [system_message] + state['messages']
+        message = self.llm.invoke(messages)
         return {'messages': [message]}
     
     def __init__(self, llm, tools):
         super().__init__(state_schema=AgentState)
-
-        memory = MemorySaver()
 
         self.llm = llm
         
@@ -35,6 +34,7 @@ class AgentGraph(StateGraph):
         self.add_edge('tools', 'chatbot')
         self.add_edge(START, 'chatbot')
         
+        memory = MemorySaver()
         self.graph = self.compile(
             checkpointer=memory,
         )
