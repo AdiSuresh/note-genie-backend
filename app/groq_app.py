@@ -28,33 +28,11 @@ load_dotenv()
 
 app = FastAPI()
 
-
 # DB setup
 MONGO_URI = os.getenv('MONGO_URI')
 client = AsyncIOMotorClient(MONGO_URI)
 db = client['note_genie_db']
 chats_collection = db['chats']
-
-
-# LLM setup
-template = '''
-You are a helpful assistant.
-
-Here is the conversation history: {context}
-
-Question: {question}
-
-Answer:
-'''
-
-llm = ChatGroq(
-    model='llama-3.1-8b-instant',
-    streaming=True,
-)
-
-prompt = ChatPromptTemplate.from_template(template=template)
-
-chain = prompt | llm
 
 embedding_model = HuggingFaceEmbeddings(
     model_name='nomic-ai/nomic-embed-text-v2-moe',
@@ -82,6 +60,11 @@ notes_tool = NotesTool(
 )
 
 tools = [notes_tool]
+
+llm = ChatGroq(
+    model='llama-3.1-8b-instant',
+    streaming=True,
+)
 
 llm_with_tools = llm.bind_tools(
     tools=tools,
