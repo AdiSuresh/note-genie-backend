@@ -5,18 +5,19 @@ from fastapi.responses import StreamingResponse
 import torch
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
-from langchain.agents import initialize_agent, AgentType
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import (
     BaseMessage,
     SystemMessage,
     HumanMessage,
     AIMessage,
+    AIMessageChunk,
 )
 from langchain_groq import ChatGroq
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+from app.agent_graph import AgentGraph
 from app.document_loader import DocumentLoader
 from app.models.chat import ChatModel
 from app.models.query_request import ChatResponseRequest
@@ -46,14 +47,14 @@ Question: {question}
 Answer:
 '''
 
-model = ChatGroq(
+llm = ChatGroq(
     model='llama-3.1-8b-instant',
     streaming=True,
 )
 
 prompt = ChatPromptTemplate.from_template(template=template)
 
-chain = prompt | model
+chain = prompt | llm
 
 embedding_model = HuggingFaceEmbeddings(
     model_name='nomic-ai/nomic-embed-text-v2-moe',
@@ -80,16 +81,15 @@ notes_tool = NotesTool(
     vectorstore=vectorstore
 )
 
-model_with_tools = model.bind_tools(
-    tools=[notes_tool],
-    tool_choice='any'
+tools = [notes_tool]
+
+llm_with_tools = llm.bind_tools(
+    tools=tools,
 )
 
-agent = initialize_agent(
-    tools=[notes_tool],
-    llm=model,
-    agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-    verbose=True,
+agent = AgentGraph(
+    llm=llm_with_tools,
+    tools=tools,
 )
 
 @app.get('/')
@@ -136,24 +136,33 @@ async def test():
     return {'message': 'success'}
 
 async def generate_response(request: ChatResponseRequest, id: ObjectId):
-    messages = await create_message_list(chat_id=str(id))
-    
-    # config = RunnableConfig(configurable={'stream': True})
+    chat_id = str(id)
+    messages = await create_message_list(chat_id=chat_id)
 
-    result = model_with_tools.astream(
-        messages,
+    config = {'configurable': {'thread_id': '1'}}
+
+    print(f'user input: {messages[-1]}')
+    result = agent.graph.astream(
+        {
+            'messages': [messages[-1]]
+        },
+        config=config,
+        stream_mode='messages',
     )
     
     chunks = []
 
     async for chunk in result:
-        print(f'chunk: {chunk}')
-        content = chunk.content
-        print(f'content: {content}')
-        chunks.append(content)
-        yield content
+        # print(f'chunk: {chunk}')
+        message = chunk[0]
+        content = message.content
+        if isinstance(message, AIMessageChunk):
+            chunks.append(content)
+            yield content
     
     response = ''.join(chunks)
+
+    print(f'final response: {response}')
     
     await chats_collection.update_one(
         {'_id': id},
