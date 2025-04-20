@@ -8,13 +8,20 @@ from langgraph.checkpoint.memory import MemorySaver
 
 system_message = SystemMessage('You are a helpful assistant.')
 
+prompt = ChatPromptTemplate.from_messages(
+    [
+        system_message,
+        MessagesPlaceholder(variable_name='messages'),
+    ]
+)
+
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
 
 class AgentGraph(StateGraph):
     def chatbot(self, state: AgentState):
-        messages = [system_message] + state['messages']
-        message = self.llm.invoke(messages)
+        chain = prompt | self.llm
+        message = chain.invoke({'messages': state['messages']})
         return {'messages': [message]}
     
     def __init__(self, llm, tools):
