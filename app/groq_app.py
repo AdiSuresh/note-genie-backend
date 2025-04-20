@@ -5,7 +5,6 @@ from fastapi.responses import StreamingResponse
 import torch
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import (
     BaseMessage,
     SystemMessage,
@@ -25,8 +24,6 @@ from app.models.update_title_request import UpdateChatRequest
 from app.tools.notes import NotesTool
 
 load_dotenv()
-
-app = FastAPI()
 
 # DB setup
 MONGO_URI = os.getenv('MONGO_URI')
@@ -74,6 +71,8 @@ agent = AgentGraph(
     llm=llm_with_tools,
     tools=tools,
 )
+
+app = FastAPI()
 
 @app.get('/')
 def get_root():
