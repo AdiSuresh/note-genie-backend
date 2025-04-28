@@ -1,3 +1,4 @@
+import json
 from langchain.tools import BaseTool
 from langchain.vectorstores import VectorStore
 from typing import Type
@@ -8,7 +9,7 @@ class NotesToolSearchInput(BaseModel):
 
 class NotesTool(BaseTool):
     name: str = 'notes_tool'
-    description: str = 'Searches for relevant chunks of notes created by the user based on a query'
+    description: str = 'Searches for potentially relevant notes based on a query'
     args_schema: Type[BaseModel] = NotesToolSearchInput
 
     _vectorstore: VectorStore = PrivateAttr()
@@ -20,15 +21,20 @@ class NotesTool(BaseTool):
         self._k = k
 
     def _run(self, query: str) -> str:
-        '''Run a similarity search and return the top-k relevant chunks.'''
-        results = self._vectorstore.similarity_search(query, k=self._k)
-        if not results:
-            return 'No relevant data found.'
-        return '\n\n'.join([doc.page_content for doc in results])
+        raise NotImplementedError()
 
     async def _arun(self, query: str) -> str:
-        '''Run a similarity search and return the top-k relevant chunks.'''
-        results = await self._vectorstore.asimilarity_search(query, k=self._k)
-        if not results:
-            return 'No relevant data found.'
-        return '\n\n'.join([doc.page_content for doc in results])
+        """Run a similarity search and return the top-k potentially relevant notes."""
+        
+        search_results = await self._vectorstore.asimilarity_search(query, k=self._k)
+        print('_arun was called')
+        print(f'query: {query}')
+        result = {
+            'tool_status': 'active',
+        }
+        print(f'found {len(search_results)} results')
+        if not search_results:
+            result['search_results'] = f'No search results for "{query}"'
+        else:
+            result['search_results'] = '\n\n'.join([doc.page_content for doc in search_results])
+        return json.dumps(result)

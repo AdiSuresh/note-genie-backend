@@ -5,7 +5,6 @@ from fastapi.responses import StreamingResponse
 import torch
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import (
     BaseMessage,
     SystemMessage,
@@ -14,47 +13,17 @@ from langchain_core.messages import (
     AIMessageChunk,
 )
 from langchain_groq import ChatGroq
-from dotenv import load_dotenv
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from app.agent_graph import AgentGraph
+from app.core.settings import settings
+from app.core.chat_saver import ChatSaver
 from app.document_loader import DocumentLoader
 from app.models.chat import ChatModel
 from app.models.query_request import ChatResponseRequest
 from app.models.update_title_request import UpdateChatRequest
 from app.tools.notes import NotesTool
-
-load_dotenv()
-
-app = FastAPI()
-
-
-# DB setup
-MONGO_URI = os.getenv('MONGO_URI')
-client = AsyncIOMotorClient(MONGO_URI)
-db = client['note_genie_db']
-chats_collection = db['chats']
-
-
-# LLM setup
-template = '''
-You are a helpful assistant.
-
-Here is the conversation history: {context}
-
-Question: {question}
-
-Answer:
-'''
-
-llm = ChatGroq(
-    model='llama-3.1-8b-instant',
-    streaming=True,
-)
-
-prompt = ChatPromptTemplate.from_template(template=template)
-
-chain = prompt | llm
+from app.core.database import chats_collection
+from app.utils.base_checkpoint_saver import aget_messages
 
 embedding_model = HuggingFaceEmbeddings(
     model_name='nomic-ai/nomic-embed-text-v2-moe',
@@ -71,103 +40,71 @@ embedding_model = HuggingFaceEmbeddings(
 #     persist_directory='chroma_db'
 # )
 
+loader = DocumentLoader()
+loader.load('document.txt')
+
 vectorstore = Chroma.from_texts(
-    texts=DocumentLoader().load('document.txt'),
+    texts=[loader.buffer],
     collection_name='document',
     embedding=embedding_model,
 )
 
-notes_tool = NotesTool(
-    vectorstore=vectorstore
+llm = ChatGroq(
+    model='llama-3.1-8b-instant',
+    api_key=settings.LLM_API_KEY,
+    temperature=0.25,
+    streaming=True,
 )
 
-tools = [notes_tool]
-
-llm_with_tools = llm.bind_tools(
-    tools=tools,
-)
-
-agent = AgentGraph(
-    llm=llm_with_tools,
-    tools=tools,
-)
+app = FastAPI()
 
 @app.get('/')
 def get_root():
     return {'message': 'Hello, FastAPI!'}
 
-async def create_message_list(chat_id: str):
-    chat_id = ObjectId(chat_id)
-
-    chat = await get_chat(id=chat_id)
-    message_objects = chat['messages']
-
-    is_user = True
-    messages: list[BaseMessage] = [
-        SystemMessage(
-            'You are a helpful assistant that makes use of the notes tool for responding to user\'s queries.',
-        ),
-    ]
-
-    for object in message_objects:
-        content = object['data']
-        role = object['role']
-
-        match (role, is_user):
-            case ('user', True):
-                is_user = False
-                messages.append(HumanMessage(content=content))
-            case ('bot', False):
-                is_user = True
-                messages.append(AIMessage(content=content))
-            case _:
-                raise HTTPException(status_code=500, detail='Malformed message list')
-    
-    return messages
-
 @app.get('/test')
 async def test():
     try:
-        id = '67e17812951a0032e4784126'
-        await create_message_list(chat_id=id)
+        pass
     except Exception as e:
         print(e)
         raise HTTPException(status_code=500)
     return {'message': 'success'}
 
-async def generate_response(request: ChatResponseRequest, id: ObjectId):
+async def generate_response(message: str, id: ObjectId):
     chat_id = str(id)
-    messages = await create_message_list(chat_id=chat_id)
 
-    config = {'configurable': {'thread_id': '1'}}
-
-    print(f'user input: {messages[-1]}')
-    result = agent.graph.astream(
-        {
-            'messages': [messages[-1]]
-        },
-        config=config,
-        stream_mode='messages',
+    tools = [NotesTool(vectorstore=vectorstore)]
+    llm_with_tools = llm.bind_tools(
+        tools=tools,
     )
-    
-    chunks = []
+    async with ChatSaver.create() as memory:
+        memory: BaseCheckpointSaver
+        graph = AgentGraph.create_graph(llm_with_tools, tools, memory)
+        config = {'configurable': {'thread_id': chat_id}}
+        result = graph.astream(
+            input={
+                'messages': [HumanMessage(message)]
+            },
+            config=config,
+            stream_mode='messages',
+        )
 
-    async for chunk in result:
-        # print(f'chunk: {chunk}')
-        message = chunk[0]
-        content = message.content
-        if isinstance(message, AIMessageChunk):
-            chunks.append(content)
-            yield content
-    
+        chunks = []
+
+        async for chunk in result:
+            # print(f'chunk: {chunk}')
+            chunk = chunk[0]
+            content = chunk.content
+            if isinstance(chunk, AIMessageChunk):
+                chunks.append(content)
+                yield content
+            else:
+                print(f'other chunk: {type(chunk)}')
+
     response = ''.join(chunks)
 
     print(f'final response: {response}')
-    
-    await chats_collection.update_one(
-        {'_id': id},
-        {'$push': {'messages': {'role': 'bot', 'data': response}}}
-    )
     
     print('finished')
 
@@ -181,15 +118,8 @@ async def create_chat_response(id: str, request: ChatResponseRequest):
     chat = chats_collection.find_one({'_id': id,})
     if not chat:
         raise HTTPException(status_code=404, detail='Chat not found')
-    
-    result = await chats_collection.update_one(
-        {'_id': id},
-        {'$push': {'messages': {'role': 'user', 'data': request.message}}}
-    )
 
-    print(f'message appended: {result}')
-
-    return StreamingResponse(generate_response(request, id), media_type='text/plain')
+    return StreamingResponse(generate_response(request.message, id), media_type='text/plain')
 
 @app.post('/chats')
 async def create_chat(chat: ChatModel):
@@ -201,15 +131,40 @@ async def create_chat(chat: ChatModel):
 async def get_chat(id: str):
     try:
         id = ObjectId(id)
-    except:
-        raise HTTPException(status_code=400, detail='Invalid chat ID')
-    
+    except Exception as e:
+        raise HTTPException(status_code=400, detail='Invalid chat ID') from e
+
     chat = await chats_collection.find_one({'_id': id})
     if not chat:
         raise HTTPException(status_code=404, detail='Chat not found')
 
     chat['_id'] = str(chat['_id'])
+
+    async with ChatSaver.create() as memory:
+        memory: BaseCheckpointSaver
+        config = {'configurable': {'thread_id': str(id)}}
+        chat_history = await aget_messages(memory, config)
+        messages = []
+        for message in chat_history:
+            message_object = None
+            if isinstance(message, HumanMessage):
+                message_object = {
+                    'data': message.content,
+                    'role': 'user'
+                }
+            elif isinstance(message, AIMessage):
+                message_object = {
+                    'data': message.content,
+                    'role': 'bot'
+                }
+
+            if message_object:
+                messages.append(message_object)
+
+        chat['messages'] = messages
+        print('messages assigned to chat')
     return chat
+
 
 @app.get('/chats', response_model=List[ChatModel])
 async def get_chats():
@@ -222,7 +177,7 @@ async def get_chats():
 async def update_chat_title(id: str, chat: UpdateChatRequest):
     try:
         id = ObjectId(id)
-    except:
+    except Exception as e:
         raise HTTPException(status_code=400, detail='Invalid chat ID')
 
     result = await chats_collection.update_one(
@@ -235,12 +190,13 @@ async def update_chat_title(id: str, chat: UpdateChatRequest):
 
     return {'message': 'Title updated successfully'}
 
+
 @app.delete('/chats/{id}')
 async def delete_chat(id: str):
     try:
         id = ObjectId(id)
-    except:
-        raise HTTPException(status_code=400, detail='Invalid chat ID')
+    except Exception as e:
+        raise HTTPException(status_code=400, detail='Invalid chat ID') from e
 
     result = await chats_collection.delete_one({'_id': id})
     if result.deleted_count == 0:
