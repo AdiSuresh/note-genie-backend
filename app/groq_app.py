@@ -106,11 +106,6 @@ async def generate_response(message: str, id: ObjectId):
 
     print(f'final response: {response}')
     
-    await chats_collection.update_one(
-        {'_id': id},
-        {'$push': {'messages': {'role': 'bot', 'data': response}}}
-    )
-    
     print('finished')
 
 @app.post('/chats/{id}/respond')
@@ -123,13 +118,6 @@ async def create_chat_response(id: str, request: ChatResponseRequest):
     chat = chats_collection.find_one({'_id': id,})
     if not chat:
         raise HTTPException(status_code=404, detail='Chat not found')
-    
-    result = await chats_collection.update_one(
-        {'_id': id},
-        {'$push': {'messages': {'role': 'user', 'data': request.message}}}
-    )
-
-    print(f'message appended: {result}')
 
     return StreamingResponse(generate_response(request.message, id), media_type='text/plain')
 
