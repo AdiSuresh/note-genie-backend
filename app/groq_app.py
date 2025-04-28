@@ -62,40 +62,10 @@ app = FastAPI()
 def get_root():
     return {'message': 'Hello, FastAPI!'}
 
-async def create_message_list(chat_id: str):
-    chat_id = ObjectId(chat_id)
-
-    chat = await get_chat(id=chat_id)
-    message_objects = chat['messages']
-
-    is_user = True
-    messages: list[BaseMessage] = [
-        SystemMessage(
-            'You are a helpful assistant that makes use of the notes tool for responding to user\'s queries.',
-        ),
-    ]
-
-    for object in message_objects:
-        content = object['data']
-        role = object['role']
-
-        match (role, is_user):
-            case ('user', True):
-                is_user = False
-                messages.append(HumanMessage(content=content))
-            case ('bot', False):
-                is_user = True
-                messages.append(AIMessage(content=content))
-            case _:
-                raise HTTPException(status_code=500, detail='Malformed message list')
-    
-    return messages
-
 @app.get('/test')
 async def test():
     try:
-        id = '67e17812951a0032e4784126'
-        await create_message_list(chat_id=id)
+        pass
     except Exception as e:
         print(e)
         raise HTTPException(status_code=500)
