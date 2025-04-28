@@ -9,4 +9,4 @@ class ChatSaver():
             settings.DATABASE_URI,
             settings.DATABASE_NAME,
             'chats_cp',
-        ) 
+        )
