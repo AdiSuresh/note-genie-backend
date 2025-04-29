@@ -6,8 +6,6 @@ import torch
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 from langchain_core.messages import (
-    BaseMessage,
-    SystemMessage,
     HumanMessage,
     AIMessage,
     AIMessageChunk,
@@ -19,10 +17,11 @@ from app.core.settings import settings
 from app.core.chat_saver import ChatSaver
 from app.document_loader import DocumentLoader
 from app.models.chat import ChatModel
+from app.models.note import NoteModel
 from app.models.query_request import ChatResponseRequest
 from app.models.update_title_request import UpdateChatRequest
 from app.tools.notes import NotesTool
-from app.core.database import chats_collection
+from app.core.database import chats_collection, notes_collection
 from app.utils.base_checkpoint_saver import aget_messages
 
 embedding_model = HuggingFaceEmbeddings(
@@ -178,7 +177,7 @@ async def update_chat_title(id: str, chat: UpdateChatRequest):
     try:
         id = ObjectId(id)
     except Exception as e:
-        raise HTTPException(status_code=400, detail='Invalid chat ID')
+        raise HTTPException(status_code=400, detail='Invalid chat ID') from e
 
     result = await chats_collection.update_one(
         {'_id': id},
@@ -203,3 +202,31 @@ async def delete_chat(id: str):
         raise HTTPException(status_code=404, detail='Chat not found')
 
     return {'message': 'Chat deleted successfully'}
+
+@app.post('/notes')
+async def create_note(note: NoteModel):
+    note_dict = note.model_dump(by_alias=True, exclude=['id'])
+
+    try:
+        result = await notes_collection.insert_one(note_dict)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail='Something went wrong') from e
+
+    return {'id': str(result.inserted_id)}
+
+@app.put('/notes/{id}')
+async def update_note(id: str, note: NoteModel):
+    try:
+        obj_id = ObjectId(id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail='Invalid note ID') from e
+
+    result = await notes_collection.update_one(
+        {'_id': obj_id},
+        {'$set': {'title': note.title, 'content': note.content}}
+    )
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail='Note not found')
+
+    return {'message': 'Note updated successfully'}
