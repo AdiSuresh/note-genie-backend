@@ -16,7 +16,6 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from app.agent_graph import AgentGraph
 from app.core.settings import settings
 from app.core.chat_saver import ChatSaver
-from app.document_loader import DocumentLoader
 from app.models.chat import ChatModel
 from app.models.note import NoteModel
 from app.models.query_request import ChatResponseRequest
@@ -240,12 +239,9 @@ async def update_note_embeddings(id: str, note: NoteModel):
     
     text = note.model_dump_json(exclude=['id'])
 
-    deleted = await vectorstore.adelete(
+    await vectorstore.adelete(
         where={'note_id': id}
     )
-
-    if not deleted:
-        raise HTTPException(status_code=500, detail='Something went wrong')
 
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1024, chunk_overlap=0, keep_separator='end')
     chunks = text_splitter.split_text(text)
