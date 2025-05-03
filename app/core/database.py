@@ -6,3 +6,5 @@ db = db_client[settings.DATABASE_NAME]
 
 chats_collection = db['chats']
 chats_cp_collection = db['chats_cp']
+
+notes_collection = db['notes']

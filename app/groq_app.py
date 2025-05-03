@@ -1,13 +1,12 @@
 from typing import List
 from bson import ObjectId
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 import torch
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 from langchain_core.messages import (
-    BaseMessage,
-    SystemMessage,
     HumanMessage,
     AIMessage,
     AIMessageChunk,
@@ -19,10 +18,11 @@ from app.core.settings import settings
 from app.core.chat_saver import ChatSaver
 from app.document_loader import DocumentLoader
 from app.models.chat import ChatModel
+from app.models.note import NoteModel
 from app.models.query_request import ChatResponseRequest
 from app.models.update_title_request import UpdateChatRequest
 from app.tools.notes import NotesTool
-from app.core.database import chats_collection
+from app.core.database import chats_collection, notes_collection
 from app.utils.base_checkpoint_saver import aget_messages
 
 embedding_model = HuggingFaceEmbeddings(
@@ -34,19 +34,10 @@ embedding_model = HuggingFaceEmbeddings(
     encode_kwargs={'normalize_embeddings': True},
 )
 
-# vectorstore = Chroma(
-#     collection_name='notes',
-#     embedding_function=embedding_model,
-#     persist_directory='chroma_db'
-# )
-
-loader = DocumentLoader()
-loader.load('document.txt')
-
-vectorstore = Chroma.from_texts(
-    texts=[loader.buffer],
-    collection_name='document',
-    embedding=embedding_model,
+vectorstore = Chroma(
+    collection_name='notes',
+    embedding_function=embedding_model,
+    persist_directory='./chroma_db'
 )
 
 llm = ChatGroq(
@@ -178,7 +169,7 @@ async def update_chat_title(id: str, chat: UpdateChatRequest):
     try:
         id = ObjectId(id)
     except Exception as e:
-        raise HTTPException(status_code=400, detail='Invalid chat ID')
+        raise HTTPException(status_code=400, detail='Invalid chat ID') from e
 
     result = await chats_collection.update_one(
         {'_id': id},
@@ -203,3 +194,67 @@ async def delete_chat(id: str):
         raise HTTPException(status_code=404, detail='Chat not found')
 
     return {'message': 'Chat deleted successfully'}
+
+@app.post('/notes')
+async def create_note(note: NoteModel):
+    note_dict = note.model_dump(by_alias=True, exclude=['id'])
+
+    try:
+        result = await notes_collection.insert_one(note_dict)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail='Something went wrong') from e
+
+    return JSONResponse(
+        content={'id': str(result.inserted_id)},
+        status_code=201,
+    )
+
+@app.put('/notes/{id}')
+async def update_note(id: str, note: NoteModel):
+    try:
+        obj_id = ObjectId(id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail='Invalid note ID') from e
+
+    result = await notes_collection.update_one(
+        {'_id': obj_id},
+        {'$set': {'title': note.title, 'content': note.content}}
+    )
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail='Note not found')
+
+    return {'message': 'Note updated successfully'}
+
+@app.post('/notes/{id}/embed')
+async def update_note_embeddings(id: str, note: NoteModel):
+    try:
+        obj_id = ObjectId(id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail='Invalid note ID') from e
+    
+    search_result = await notes_collection.find_one({'_id': obj_id})
+    
+    if not search_result:
+        raise HTTPException(status_code=404, detail='Note not found')
+    
+    text = note.model_dump_json(exclude=['id'])
+
+    deleted = await vectorstore.adelete(
+        where={'note_id': id}
+    )
+
+    if not deleted:
+        raise HTTPException(status_code=500, detail='Something went wrong')
+
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1024, chunk_overlap=0, keep_separator='end')
+    chunks = text_splitter.split_text(text)
+
+    try:
+        await vectorstore.aadd_texts(
+            texts=chunks,
+            metadatas=[{'note_id': id, 'index': i} for i in range(len(chunks))],
+        )
+        return {'message': 'Note embeddings updated successfully'}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail='Something went wrong')
