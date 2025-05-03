@@ -1,7 +1,8 @@
 from typing import List
 from bson import ObjectId
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 import torch
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
@@ -42,10 +43,10 @@ embedding_model = HuggingFaceEmbeddings(
 loader = DocumentLoader()
 loader.load('document.txt')
 
-vectorstore = Chroma.from_texts(
-    texts=[loader.buffer],
-    collection_name='document',
-    embedding=embedding_model,
+vectorstore = Chroma(
+    collection_name='notes',
+    embedding_function=embedding_model,
+    persist_directory='./chroma_db'
 )
 
 llm = ChatGroq(
@@ -212,7 +213,10 @@ async def create_note(note: NoteModel):
     except Exception as e:
         raise HTTPException(status_code=500, detail='Something went wrong') from e
 
-    return {'id': str(result.inserted_id)}
+    return JSONResponse(
+        content={'id': str(result.inserted_id)},
+        status_code=201,
+    )
 
 @app.put('/notes/{id}')
 async def update_note(id: str, note: NoteModel):
@@ -230,3 +234,36 @@ async def update_note(id: str, note: NoteModel):
         raise HTTPException(status_code=404, detail='Note not found')
 
     return {'message': 'Note updated successfully'}
+
+@app.post('/notes/{id}/embed')
+async def update_note_embeddings(id: str, note: NoteModel):
+    try:
+        obj_id = ObjectId(id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail='Invalid note ID') from e
+    
+    search_result = await notes_collection.find_one({'_id': obj_id})
+    
+    if not search_result:
+        raise HTTPException(status_code=404, detail='Note not found')
+    
+    text = note.model_dump_json(exclude=['id'])
+
+    deleted = await vectorstore.adelete(
+        where={'note_id': id}
+    )
+
+    if not deleted:
+        raise HTTPException(status_code=500, detail='Something went wrong')
+
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1024, chunk_overlap=0, keep_separator='end')
+    chunks = text_splitter.split_text(text)
+
+    try:
+        await vectorstore.aadd_texts(
+            texts=chunks,
+            metadatas=[{'note_id': id, 'index': i} for i in range(len(chunks))],
+        )
+        return {'message': 'Note embeddings updated successfully'}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail='Something went wrong')
