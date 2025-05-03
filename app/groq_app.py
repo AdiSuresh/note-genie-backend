@@ -34,15 +34,6 @@ embedding_model = HuggingFaceEmbeddings(
     encode_kwargs={'normalize_embeddings': True},
 )
 
-# vectorstore = Chroma(
-#     collection_name='notes',
-#     embedding_function=embedding_model,
-#     persist_directory='chroma_db'
-# )
-
-loader = DocumentLoader()
-loader.load('document.txt')
-
 vectorstore = Chroma(
     collection_name='notes',
     embedding_function=embedding_model,
