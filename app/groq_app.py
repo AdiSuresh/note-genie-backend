@@ -20,6 +20,7 @@ from app.models.chat import ChatModel
 from app.models.note import NoteModel
 from app.models.query_request import ChatResponseRequest
 from app.models.update_title_request import UpdateChatRequest
+from app.routes import auth
 from app.tools.notes import NotesTool
 from app.core.database import chats_collection, notes_collection
 from app.utils.base_checkpoint_saver import aget_messages
@@ -41,7 +42,7 @@ vectorstore = Chroma(
 
 llm = ChatGroq(
     model='llama-3.1-8b-instant',
-    api_key=settings.LLM_API_KEY,
+    api_key=settings.llm_api_key,
     temperature=0.25,
     streaming=True,
 )
@@ -254,3 +255,5 @@ async def update_note_embeddings(id: str, note: NoteModel):
         return {'message': 'Note embeddings updated successfully'}
     except Exception as e:
         raise HTTPException(status_code=500, detail='Something went wrong')
+
+app.include_router(auth.router)
