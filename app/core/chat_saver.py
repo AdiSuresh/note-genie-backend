@@ -6,7 +6,7 @@ class ChatSaver():
     @classmethod
     def create(cls) -> AsyncMongoDBSaver:
         return AsyncMongoDBSaver.from_conn_string(
-            settings.DATABASE_URI,
-            settings.DATABASE_NAME,
+            settings.database_uri,
+            settings.database_name,
             'chats_cp',
         )
