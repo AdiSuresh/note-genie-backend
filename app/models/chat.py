@@ -6,5 +6,6 @@ from app.types.py_object_id import PyObjectId
 
 class ChatModel(BaseModel):
     id: Optional[PyObjectId] = Field(alias='_id', default=None)
+    user_id: Optional[str] = None
     title: str = 'Untitled'
     messages: List[ChatMessageModel] = []
