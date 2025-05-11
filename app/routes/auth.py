@@ -7,18 +7,18 @@ from app.core.database import users_collection
 
 router = APIRouter()
 
-@router.post('/register')
-async def register(user: UserCreate):
+@router.post('/sign-up')
+async def sign_up(user: UserCreate):
     if await users_collection.find_one({'email': user.email}):
-        raise HTTPException(status_code=400, detail='Email already registered.')
+        raise HTTPException(status_code=400, detail='already_exists')
     hashed_pw = hash_password(user.password)
     await users_collection.insert_one({'email': user.email, 'hashed_password': hashed_pw})
-    return {'msg': 'User registered successfully'}
+    return {'message': 'success'}
 
-@router.post('/login')
-async def login(user: UserLogin):
+@router.post('/sign-in')
+async def sign_in(user: UserLogin):
     db_user = await users_collection.find_one({'email': user.email})
     if not db_user or not verify_password(user.password, db_user['hashed_password']):
-        raise HTTPException(status_code=401, detail='Invalid credentials')
-    token = create_access_token({'sub': user.email})
+        raise HTTPException(status_code=401, detail='invalid_credentials')
+    token = create_access_token({'sub': str(db_user['_id'])})
     return {'access_token': token, 'token_type': 'bearer'}

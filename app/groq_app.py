@@ -1,6 +1,6 @@
 from typing import List
 from bson import ObjectId
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import torch
@@ -16,13 +16,14 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from app.agent_graph import AgentGraph
 from app.core.settings import settings
 from app.core.chat_saver import ChatSaver
+from app.dependencies.auth import get_current_user
 from app.models.chat import ChatModel
 from app.models.note import NoteModel
 from app.models.query_request import ChatResponseRequest
 from app.models.update_title_request import UpdateChatRequest
 from app.routes import auth
 from app.tools.notes import NotesTool
-from app.core.database import chats_collection, notes_collection
+from app.core.database import chats_collection, notes_collection, users_collection
 from app.utils.base_checkpoint_saver import aget_messages
 
 embedding_model = HuggingFaceEmbeddings(
@@ -113,19 +114,17 @@ async def create_chat_response(id: str, request: ChatResponseRequest):
     return StreamingResponse(generate_response(request.message, id), media_type='text/plain')
 
 @app.post('/chats')
-async def create_chat(chat: ChatModel):
+async def create_chat(chat: ChatModel, current_user: str=Depends(get_current_user)):
     chat_dict = chat.model_dump(by_alias=True, exclude=['id'])
+    user_id = str(current_user['_id'])
+    chat_dict['user_id'] = user_id
     result = await chats_collection.insert_one(chat_dict)
     return {'id': str(result.inserted_id)}
 
 @app.get('/chats/{id}', response_model=ChatModel)
-async def get_chat(id: str):
-    try:
-        id = ObjectId(id)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail='Invalid chat ID') from e
-
-    chat = await chats_collection.find_one({'_id': id})
+async def get_chat(id: str, current_user: str=Depends(get_current_user)):
+    user_id = str(current_user['_id'])
+    chat = await chats_collection.find_one({'_id': id, 'user_id': user_id})
     if not chat:
         raise HTTPException(status_code=404, detail='Chat not found')
 
@@ -158,21 +157,24 @@ async def get_chat(id: str):
 
 
 @app.get('/chats', response_model=List[ChatModel])
-async def get_chats():
-    chats = await chats_collection.find(None, {'messages': 0}).to_list(None)
+async def get_chats(current_user: str=Depends(get_current_user)):
+    user_id = str(current_user['_id'])
+    chats = await chats_collection.find({'user_id': user_id}, {'messages': 0}).to_list(None)
     for chat in chats:
         chat['_id'] = str(chat['_id'])
     return chats
 
 @app.put('/chats/{id}')
-async def update_chat_title(id: str, chat: UpdateChatRequest):
+async def update_chat_title(id: str, chat: UpdateChatRequest, current_user: str=Depends(get_current_user)):
     try:
         id = ObjectId(id)
     except Exception as e:
         raise HTTPException(status_code=400, detail='Invalid chat ID') from e
+    
+    user_id = current_user['_id']
 
     result = await chats_collection.update_one(
-        {'_id': id},
+        {'_id': id, 'user_id': user_id},
         {'$set': {'title': chat.title}}
     )
 
@@ -183,21 +185,25 @@ async def update_chat_title(id: str, chat: UpdateChatRequest):
 
 
 @app.delete('/chats/{id}')
-async def delete_chat(id: str):
+async def delete_chat(id: str, current_user: str=Depends(get_current_user)):
     try:
         id = ObjectId(id)
     except Exception as e:
         raise HTTPException(status_code=400, detail='Invalid chat ID') from e
 
-    result = await chats_collection.delete_one({'_id': id})
+    user_id = current_user['_id']
+
+    result = await chats_collection.delete_one({'_id': id, 'user_id': user_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail='Chat not found')
 
     return {'message': 'Chat deleted successfully'}
 
 @app.post('/notes')
-async def create_note(note: NoteModel):
+async def create_note(note: NoteModel, current_user: str=Depends(get_current_user)):
     note_dict = note.model_dump(by_alias=True, exclude=['id'])
+    user_id = str(current_user['_id'])
+    note_dict['user_id'] = user_id
 
     try:
         result = await notes_collection.insert_one(note_dict)
@@ -210,14 +216,15 @@ async def create_note(note: NoteModel):
     )
 
 @app.put('/notes/{id}')
-async def update_note(id: str, note: NoteModel):
+async def update_note(id: str, note: NoteModel, current_user: str=Depends(get_current_user)):
     try:
         obj_id = ObjectId(id)
     except Exception as e:
         raise HTTPException(status_code=400, detail='Invalid note ID') from e
 
+    user_id = str(current_user['_id'])
     result = await notes_collection.update_one(
-        {'_id': obj_id},
+        {'_id': obj_id, 'user_id': user_id},
         {'$set': {'title': note.title, 'content': note.content}}
     )
 
@@ -227,13 +234,14 @@ async def update_note(id: str, note: NoteModel):
     return {'message': 'Note updated successfully'}
 
 @app.post('/notes/{id}/embed')
-async def update_note_embeddings(id: str, note: NoteModel):
+async def update_note_embeddings(id: str, note: NoteModel, current_user: str=Depends(get_current_user)):
     try:
         obj_id = ObjectId(id)
     except Exception as e:
         raise HTTPException(status_code=400, detail='Invalid note ID') from e
-    
-    search_result = await notes_collection.find_one({'_id': obj_id})
+
+    user_id = str(current_user['_id'])
+    search_result = await notes_collection.find_one({'_id': obj_id, 'user_id': user_id})
     
     if not search_result:
         raise HTTPException(status_code=404, detail='Note not found')
