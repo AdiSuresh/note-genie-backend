@@ -158,7 +158,6 @@ async def get_chat(id: str, current_user: str=Depends(get_current_user)):
 
 @app.get('/chats', response_model=List[ChatModel])
 async def get_chats(current_user: str=Depends(get_current_user)):
-    print(f'current_user: {current_user}')
     user_id = str(current_user['_id'])
     chats = await chats_collection.find({'user_id': user_id}, {'messages': 0}).to_list(None)
     for chat in chats:
@@ -201,8 +200,10 @@ async def delete_chat(id: str, current_user: str=Depends(get_current_user)):
     return {'message': 'Chat deleted successfully'}
 
 @app.post('/notes')
-async def create_note(note: NoteModel):
+async def create_note(note: NoteModel, current_user: str=Depends(get_current_user)):
     note_dict = note.model_dump(by_alias=True, exclude=['id'])
+    user_id = str(current_user['_id'])
+    note_dict['user_id'] = user_id
 
     try:
         result = await notes_collection.insert_one(note_dict)
@@ -215,14 +216,15 @@ async def create_note(note: NoteModel):
     )
 
 @app.put('/notes/{id}')
-async def update_note(id: str, note: NoteModel):
+async def update_note(id: str, note: NoteModel, current_user: str=Depends(get_current_user)):
     try:
         obj_id = ObjectId(id)
     except Exception as e:
         raise HTTPException(status_code=400, detail='Invalid note ID') from e
 
+    user_id = str(current_user['_id'])
     result = await notes_collection.update_one(
-        {'_id': obj_id},
+        {'_id': obj_id, 'user_id': user_id},
         {'$set': {'title': note.title, 'content': note.content}}
     )
 
@@ -232,13 +234,14 @@ async def update_note(id: str, note: NoteModel):
     return {'message': 'Note updated successfully'}
 
 @app.post('/notes/{id}/embed')
-async def update_note_embeddings(id: str, note: NoteModel):
+async def update_note_embeddings(id: str, note: NoteModel, current_user: str=Depends(get_current_user)):
     try:
         obj_id = ObjectId(id)
     except Exception as e:
         raise HTTPException(status_code=400, detail='Invalid note ID') from e
-    
-    search_result = await notes_collection.find_one({'_id': obj_id})
+
+    user_id = str(current_user['_id'])
+    search_result = await notes_collection.find_one({'_id': obj_id, 'user_id': user_id})
     
     if not search_result:
         raise HTTPException(status_code=404, detail='Note not found')
