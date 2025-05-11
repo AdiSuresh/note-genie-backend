@@ -20,5 +20,5 @@ async def sign_in(user: UserLogin):
     db_user = await users_collection.find_one({'email': user.email})
     if not db_user or not verify_password(user.password, db_user['hashed_password']):
         raise HTTPException(status_code=401, detail='invalid_credentials')
-    token = create_access_token({'sub': user.email})
+    token = create_access_token({'sub': str(db_user['_id'])})
     return {'access_token': token, 'token_type': 'bearer'}
