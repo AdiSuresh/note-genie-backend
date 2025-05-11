@@ -1,5 +1,8 @@
-from fastapi import HTTPException, status, Request
+from bson import ObjectId
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
 from app.utils.jwt import decode_token
+from app.core.database import users_collection
 
 def verify_token(token: str):
     payload = decode_token(token)
@@ -16,12 +19,18 @@ def verify_token(token: str):
         )
     return user_id
 
-async def get_current_user(request: Request):
-    auth_header = request.headers.get('Authorization')
-    if auth_header is None or not auth_header.startswith('Bearer '):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail='Not authenticated',
-        )
-    token = auth_header.split(' ')[1]
-    return verify_token(token)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl='sign-in')
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    user_id = verify_token(token)
+
+    try:
+        user_id = ObjectId(user_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail='Invalid user ID') from e
+
+    user = await users_collection.find_one({'_id': user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail='User not found')
+
+    return user
